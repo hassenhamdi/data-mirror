@@ -1,0 +1,54 @@
+name: mirror
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Direct download URL
+        required: true
+        default: "https://drive.usercontent.google.com/download?id=1AhQum7ZWq-M70MESz8IHgDK9BnXImq25&export=download&confirm=t"
+      asset:
+        description: Output filename
+        required: true
+        default: "ER-Merged-DMN-PBZ.zip"
+      expected_bytes:
+        description: Expected size in bytes
+        required: true
+        default: "176509065"
+      tag:
+        description: Release tag
+        required: true
+        default: "v1"
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SRC: ${{ github.event.inputs.source }}
+      ASSET: ${{ github.event.inputs.asset }}
+      EXPECTED: ${{ github.event.inputs.expected_bytes }}
+      TAG: ${{ github.event.inputs.tag }}
+    steps:
+      - name: Fetch from source
+        run: |
+          set -euo pipefail
+          curl -fL --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 -A "Mozilla/5.0" "$SRC" -o "$ASSET"
+          ACTUAL=$(stat -c%s "$ASSET")
+          echo "downloaded: $ACTUAL bytes"
+          test "$ACTUAL" -eq "$EXPECTED"
+          unzip -tq "$ASSET"
+          sha256sum "$ASSET" | tee digest.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" "$ASSET" \
+            --title "Shared data" \
+            --notes "sha256: $(cut -d' ' -f1 digest.txt)"
